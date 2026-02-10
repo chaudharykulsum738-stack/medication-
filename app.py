@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import db_manager as db
 
 # Initialize DB
@@ -15,23 +15,45 @@ page = st.sidebar.radio("Navigation", ["Dashboard", "Manage Medications", "Histo
 if page == "Dashboard":
     st.title("📅 Daily Tracker")
     
-    today = date.today().strftime("%Y-%m-%d")
-    st.header(f"Schedule for {today}")
+    # --- Top Section: Today's Stats & Weekly Chart ---
     
-    schedule = db.get_medication_status(today)
+    today_date = date.today()
+    today_str = today_date.strftime("%Y-%m-%d")
+    
+    # Fetch weekly stats
+    start_week = today_date - timedelta(days=6)
+    weekly_stats = db.get_period_adherence(start_week, today_date)
+    
+    # Calculate streaks or averages
+    avg_adherence = weekly_stats['percentage'].mean() if not weekly_stats.empty else 0
+    
+    col_metrics1, col_metrics2 = st.columns(2)
+    with col_metrics1:
+        st.metric(label="Today's Progress", value=f"{int(weekly_stats.iloc[-1]['percentage'])}%" if not weekly_stats.empty else "0%")
+    with col_metrics2:
+        st.metric(label="7-Day Average", value=f"{int(avg_adherence)}%")
+        
+    st.subheader("Weekly Adherence")
+    if not weekly_stats.empty:
+        chart_data = weekly_stats.set_index('date')[['percentage']]
+        st.bar_chart(chart_data)
+
+    st.divider()
+
+    # --- Main Section: Today's Schedule ---
+    st.header(f"Schedule for {today_str}")
+    
+    schedule = db.get_medication_status(today_str)
     
     if not schedule:
         st.info("No medications scheduled for today.")
     else:
-        # Calculate progress
+        # Calculate progress for progress bar
         total_meds = len(schedule)
         taken_meds = sum(1 for item in schedule if item['taken'])
         progress = taken_meds / total_meds if total_meds > 0 else 0
         
         st.progress(progress)
-        st.write(f"**Progress:** {int(progress * 100)}% completed")
-        
-        st.divider()
         
         for item in schedule:
             col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
@@ -50,14 +72,14 @@ if page == "Dashboard":
             
             with col4:
                 # Unique key for each button using med_id and time
-                key = f"{item['med_id']}_{item['time']}_{today}"
+                key = f"{item['med_id']}_{item['time']}_{today_str}"
                 if not item['taken']:
                     if st.button("Mark Taken", key=key):
-                        db.log_medication(item['med_id'], today, item['time'], True)
+                        db.log_medication(item['med_id'], today_str, item['time'], True)
                         st.rerun()
                 else:
                     if st.button("Undo", key=key):
-                        db.log_medication(item['med_id'], today, item['time'], False)
+                        db.log_medication(item['med_id'], today_str, item['time'], False)
                         st.rerun()
 
 elif page == "Manage Medications":
